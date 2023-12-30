@@ -1,60 +1,66 @@
 import warnings, os, random, torch
+
 warnings.filterwarnings("ignore")
-os.environ['CUDA_VISIBLE_DEVICES'] = '0' # 可用的GPU
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'  # 可用的GPU
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 
 from config import config
 from writer import JsonFile
 from processor_utils import *
 
+
 def get_model(args, model_name=None):
-    if model_name is None: 
+    if model_name is None:
         model_name = [args.model['name'], args.model['backbone']]
-    
-    if model_name[-1] is not None: ## 框架模型
+
+    if model_name[-1] is not None:  ## 框架模型
         if 'absa_seel' in model_name: from ABSA_SEEL import import_model
         backbone, dataset = get_model(args, [model_name[-1], None])
         model = import_model(args, backbone)
-    else: ## 非框架模型
+    else:  ## 非框架模型
         if 'resnet' in model_name:  from ResNet import import_model
 
         model, dataset = import_model(args)
         init_weight(model)
-    
+
     model = model.to(args.train['device'])
     return model, dataset
+
 
 def run(args):
     args = random_parameters(args)
     model, dataset = get_model(args)
-    if torch.cuda.device_count() > 1: # 指定卡/多卡 训练
+    if torch.cuda.device_count() > 1:  # 指定卡/多卡 训练
         model = torch.nn.DataParallel(model, device_ids=args.train['device_ids'])
 
     if dataset.task == 'cls':
         from processor import Processor
-    else: from processor_gen import Processor
+    else:
+        from processor_gen import Processor
 
     dataset.metrics = ['macro_f1', 'accuracy']
     dataset.lab_range = list(range(dataset.n_class))
     processor = Processor(args, model, dataset)
     result = processor._train()
 
+    torch.save(model.metrics,
+               f"./saves/ce_1_scl_{args.model['scl']}_seel_{args.model['seel']}_seed_{args.train['seed']}.pt")
     ## 2. 输出统计结果
     record = {
         'params': {
-            'e':       args.train['epochs'],
-            'es':      args.train['early_stop'],
-            'lr':      args.train['learning_rate'],
-            'lr_pre':  args.train['learning_rate_pre'],
-            'bz':      args.train['batch_size'],
-            'dr':      args.model['drop_rate'],
-            'seed':    args.train['seed'],
+            'e': args.train['epochs'],
+            'es': args.train['early_stop'],
+            'lr': args.train['learning_rate'],
+            'lr_pre': args.train['learning_rate_pre'],
+            'bz': args.train['batch_size'],
+            'dr': args.model['drop_rate'],
+            'seed': args.train['seed'],
         },
         'metric': {
-            'stop':    result['epoch'],
+            'stop': result['epoch'],
 
-            'tv_mf1':  result['valid']['macro_f1'],
-            'te_mf1':  result['test']['macro_f1'],
+            'tv_mf1': result['valid']['macro_f1'],
+            'te_mf1': result['test']['macro_f1'],
         },
     }
     return record
@@ -78,41 +84,44 @@ if __name__ == '__main__':
         aclt: EMNLP 2021 (Bert_Based)
         cscl: our sota
     """
-    args = config(tasks=['img','cifar10'], models=['absa_seel', 'resnet'])
+    args = config(tasks=['img', 'cifar100'], models=['absa_seel', 'resnet'])
     # args = config(tasks=['absa','lap'], models=['memnet', None])
 
     ## Parameters Settings
     args.model['scale'] = 'large'
-    
-    args.train['epochs'] = 10
+
+    args.train['epochs'] = 5
     args.train['early_stop'] = 5
-    args.train['batch_size'] = 32
+    args.train['batch_size'] = 128
     args.train['save_model'] = False
     args.train['log_step_rate'] = 1.0
-    args.train['learning_rate'] = 3e-2
-    args.train['learning_rate_pre'] = 3e-2
+    args.train['learning_rate'] = 1e-3
+    args.train['learning_rate_pre'] = 1e-3
 
-    args.model['drop_rate'] = 0.3
-    args.train['do_test'] = 0
-    args.train['inference'] = 0
+    args.model['drop_rate'] = 0.5
+    args.train['do_test'] = 1
+    args.train['inference'] = 1
     args.train['wandb'] = False
     args.train['show'] = 1
 
+    args.model['scl'], args.model['seel'] = 1, 0
+
     seeds = []
+    os.makedirs(args.file['record'], exist_ok=True)
     ## Cycle Training
-    if seeds: # 按指定 seed 执行
-        recoed_path = f"{args.file['record']}{args.model['name']}_best.json"
+    if seeds:  # 按指定 seed 执行
+        recoed_path = f"{args.file['record']}{args.model['name']}_best.jsonl"
         record_show = JsonFile(recoed_path, mode_w='a', delete=True)
         for seed in seeds:
             args.train['seed'] = seed
             args.train['seed_change'] = False
             record = run(args)
-            record_show.write(record, space=False) 
-    else: # 随机 seed 执行       
-        recoed_path = f"{args.file['record']}{args.model['name']}_search.json"
+            record_show.write(record, space=False)
+    else:  # 随机 seed 执行
+        recoed_path = f"{args.file['record']}{args.model['name']}_search.jsonl"
         record_show = JsonFile(recoed_path, mode_w='a', delete=True)
         for c in range(100):
-            args.train['seed'] = random.randint(1000,9999)+c
+            args.train['seed'] = random.randint(1000, 9999) + c
             args.train['seed_change'] = False
             record = run(args)
             record_show.write(record, space=False)
