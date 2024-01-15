@@ -158,9 +158,13 @@ class SEEL(nn.Module):
             else:
                 loss_seel = 0
 
-        sr = 0.75
+        if 'sr' not in self.args.model.keys():
+            sr = 0.1
+        else:
+            sr = self.args.model['sr']
+
         if stage == 'train' and self.args.model['scl'] and self.args.model['seel']:  # seel
-            loss = (loss_ce + loss_scl * 0.1) * (1 - sr) + loss_seel * sr
+            loss = (loss_ce + loss_scl * 0.1) * (1 - sr) + loss_seel * sr  # TODO: scl to 0.1
 
         elif stage == 'train' and self.args.model['scl'] and not self.args.model['seel']:  # scl
             loss = loss_ce + loss_scl * 0.1
@@ -182,4 +186,5 @@ class SEEL(nn.Module):
             'logits': logits,
             'labels': labels,
             'preds': preds,
+            'fea':features
         }

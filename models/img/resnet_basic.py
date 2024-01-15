@@ -160,4 +160,10 @@ def resnet152():
     return ResNet(BottleNeck, [3, 8, 36, 3])
 
 
+def resnet200():
+    """ return a ResNet 200 object
+    """
+    return ResNet(BottleNeck, [3, 24, 36, 3])
+
+
 

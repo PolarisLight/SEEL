@@ -1,9 +1,12 @@
+import numpy as np
 import torch, os
 import torch.nn as nn
 from torch.nn import CrossEntropyLoss
 from torch.utils.data import DataLoader, Dataset, random_split
+import torchvision
 from utils.processor_utils import set_rng_seed
 from models.img.resnet_basic import resnet50
+import models.img.resnet_basic as rb
 
 
 class MyDataset(Dataset):
@@ -36,7 +39,6 @@ class MyDataset(Dataset):
     def __len__(self):
         return len(self.datas['data']['train'])
 
-
 def config_for_model(args):
     # args.model['optim_sched'] = ['AdamW_', 'cosine']
     # args.model['optim_sched'] = ['AdamW_', 'linear']
@@ -51,22 +53,44 @@ def import_model(args):
     set_rng_seed(args.train['seed'])
 
     ## 2. 导入数据
-    split = args.train['split']
+    split = args.train['split'] if args.train.keys().__contains__('split') else 1
+    imbalanced = args.train['imbalanced'] if args.train.keys().__contains__('imbalanced') else None
     data_dir = args.file['data_dir'] + f"{args.train['tasks'][1]}/"
-    data_path = data_dir + f"dataset_{split}.pt"
+    if imbalanced:
+        data_path = data_dir + f"dataset_{split}_{imbalanced}.pt"
+    else:
+        data_path = data_dir + f"dataset_{split}.pt"
+
     if os.path.exists(data_path):
         dataset = torch.load(data_path)
     else:
         dataset = MyDataset()
         from datasets.img.data_loader import get_specific_dataset
         datas = get_specific_dataset(args, data_name=args.train['tasks'][-1])
-        dataset.datas['data'] = {'train': datas['train'], 'test': datas['test']}
+
+        # imbalance
+
+        if args.train['imbalanced']:
+            train = {'data': [], 'targets': []}
+            class_num = np.linspace(1, 1 / datas['n_class'], datas['n_class']) * (50000 / datas['n_class'])
+            class_num_dict = {i: [0, np.around(n)] for i, n in enumerate(class_num)}
+            for (x, y) in zip(datas['train'].data, datas['train'].targets):
+                if class_num_dict[y][0] < class_num_dict[y][1]:
+                    train['data'].append(x)
+                    train['targets'].append(y)
+                    class_num_dict[y][0] += 1
+            datas['train'].data = np.array(train['data'])
+            datas['train'].targets = np.array(train['targets'])
+
+        # dataset.datas['data'] = {'train': datas['train'], 'test': datas['test']} # WARNING: 非常严重的问题！！ 下方的split修改datas['train']的值后，并没有修改dataset.datas['data']['train']的值，导致后续的数据集划分出现问题
 
         dataset.name = args.train['tasks'][-1]
         dataset.task, dataset.n_class = 'cls', datas['n_class']
         if split < 1:
             half_size = int(len(datas['train']) * split)  # 0.2 0.4 0.6 0.8 1.0
             datas['train'], _ = random_split(datas['train'], [half_size, len(datas['train']) - half_size])
+
+        dataset.datas['data'] = {'train': datas['train'], 'test': datas['test']}
 
         torch.save(dataset, data_path)
 
@@ -81,7 +105,19 @@ class _ResNet(nn.Module):
         self.args = args
         self.dataset = dataset
 
-        resnet = resnet50()
+        if '50' in args.model['backbone']:
+            resnet = resnet50()
+        elif '101' in args.model['backbone']:
+            resnet = rb.resnet101()
+        elif '18' in args.model['backbone']:
+            resnet = rb.resnet18()
+        elif '34' in args.model['backbone']:
+            resnet = rb.resnet34()
+        elif '152' in args.model['backbone']:
+            resnet = rb.resnet152()
+        else:
+            resnet = resnet50() # ResNet50 as default
+        # resnet = torchvision.models.resnet50(pretrained=True)
         hidden_dim = 2048
 
         self.plm_model = torch.nn.Sequential(*list(resnet.children())[:-1])

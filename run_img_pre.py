@@ -42,7 +42,7 @@ def run(args):
     dataset.lab_range = list(range(dataset.n_class))
     processor = Processor(args, model, dataset)
     result = processor._train()
-
+    os.makedirs(f"./saves/", exist_ok=True)
     torch.save(model.metrics,
                f"./saves/ce_1_scl_{args.model['scl']}_seel_{args.model['seel']}_seed_{args.train['seed']}.pt")
     ## 2. 输出统计结果
@@ -99,7 +99,7 @@ if __name__ == '__main__':
     args.train['learning_rate'] = 1e-1
     args.train['learning_rate_pre'] = 1e-1
 
-    args.train['split'] = 0.5
+    args.train['split'] = 1.0
 
     args.model['drop_rate'] = 0.3
     args.train['do_test'] = 0
@@ -107,9 +107,10 @@ if __name__ == '__main__':
     args.train['wandb'] = False
     args.train['show'] = 1
 
-    seeds = [2024 + i for i in range(100)]
+    seeds = [2024]
     ## Cycle Training
-    os.makedirs(f"{args.file['record']}", exist_ok=True)
+    if not os.path.exists(f"{args.file['record']}"):
+        os.makedirs(f"{args.file['record']}")
     recoed_path = f"{args.file['record']}{args.model['name']}_best.jsonl"
     record_show = JsonFile(recoed_path, mode_w='a', delete=True)
     for seed in seeds:
